@@ -17,28 +17,33 @@ if 'Week' in df_sales.columns:
 # Rename 'Week End' to 'Date'
 df_sales = df_sales.rename(columns={'Week End': 'Date'})
 
+# ---- Clean numeric columns ----
+df_sales['ST_Units'] = pd.to_numeric(df_sales['ST_Units'], errors='coerce')
+df_sales['ST_Retail_$'] = pd.to_numeric(df_sales['ST_Retail_$'], errors='coerce')
+
+# Drop duplicates
+df_sales = df_sales.drop_duplicates()
+
 print("✅ Sales Data Loaded:")
 print(df_sales.head(), "\n")
 
-
 print("Sales Columns:", df_sales.columns)
-#Summarize Sales Data
+
+# ---- Summarize Sales Data ----
 def summarize_sales(df):
-    """
-    Prints and returns total units and retail sales.
-    Columns: ST_Units and ST_Retail_$.
-    """
     total_units = df['ST_Units'].sum()
     total_sales = df['ST_Retail_$'].sum()
     
-    print("📊 BIOLAGE SALES SUMMARY")
+    print("\n📊 BIOLAGE SALES SUMMARY")
     print("----------------------------")
     print(f"Total Units: {total_units:,.0f}")
-    print(f"Total Sales: ${total_sales:,.2f}")
+    print(f"Total Sales: ${total_sales:,.2f}\n")
     
     return total_units, total_sales
-# ========== Run when file is executed directly ==========
+
+# ---- Run ----
 if __name__ == "__main__":
     print("\n✅ Starting Biolage Sales Summary...\n")
     summarize_sales(df_sales)
-    print("\n✅ Done.\n")
+    print("✅ Done.\n")
+
