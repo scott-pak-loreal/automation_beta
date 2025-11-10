@@ -3,7 +3,6 @@ from pathlib import Path
 
 # ---- File Paths ----
 sales_file = Path("Biolage Sales Data.xlsx")
-mapping_file = Path("Biolage Week Mapping.xlsx")
 
 # ---- Load Sales Data ----
 df_sales = pd.read_excel(sales_file, sheet_name="Raw Data")
@@ -18,17 +17,11 @@ if 'Week' in df_sales.columns:
 # Rename 'Week End' to 'Date'
 df_sales = df_sales.rename(columns={'Week End': 'Date'})
 
-# ---- Load Week Mapping File ----
-df_map = pd.read_excel(mapping_file)
-
 print("✅ Sales Data Loaded:")
 print(df_sales.head(), "\n")
 
-print("✅ Week Mapping File Loaded:")
-print(df_map.head(), "\n")
 
 print("Sales Columns:", df_sales.columns)
-print("Mapping Columns:", df_map.columns)
 #Summarize Sales Data
 def summarize_sales(df):
     """
@@ -44,3 +37,8 @@ def summarize_sales(df):
     print(f"Total Sales: ${total_sales:,.2f}")
     
     return total_units, total_sales
+# ========== Run when file is executed directly ==========
+if __name__ == "__main__":
+    print("\n✅ Starting Biolage Sales Summary...\n")
+    summarize_sales(df_sales)
+    print("\n✅ Done.\n")
