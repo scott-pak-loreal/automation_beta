@@ -29,3 +29,18 @@ print(df_map.head(), "\n")
 
 print("Sales Columns:", df_sales.columns)
 print("Mapping Columns:", df_map.columns)
+#Summarize Sales Data
+def summarize_sales(df):
+    """
+    Prints and returns total units and retail sales.
+    Columns: ST_Units and ST_Retail_$.
+    """
+    total_units = df['ST_Units'].sum()
+    total_sales = df['ST_Retail_$'].sum()
+    
+    print("📊 BIOLAGE SALES SUMMARY")
+    print("----------------------------")
+    print(f"Total Units: {total_units:,.0f}")
+    print(f"Total Sales: ${total_sales:,.2f}")
+    
+    return total_units, total_sales
