@@ -118,7 +118,7 @@ analytical_tbl['Units_Growth'] = (
 )
 
 # =============================
-# CTG and Distribution (from your Alteryx logic)
+# CTG and Distribution
 # =============================
 total_LY_sales  = analytical_tbl['LY_Sales'].sum()
 total_TTM_sales = analytical_tbl['TTM_Sales'].sum()
@@ -135,7 +135,7 @@ if total_TTM_sales != 0:
 else:
     analytical_tbl['Distribution'] = pd.NA
 
-# Final column order like your screenshot + new calcs
+# Final column order
 final_cols = [
     'Franchise',
     'LY_Sales','TTM_Sales',
