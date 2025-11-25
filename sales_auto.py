@@ -4,10 +4,11 @@ from pathlib import Path
 # =============================
 # Config
 # =============================
-INPUT_XLSX  = Path("Biolage Sales Data.xlsx")
-INPUT_SHEET = "Raw Data_Cleaned"
-OUTPUT_XLSX = Path("Biolage Sales Data_Filtered.xlsx")
+INPUT_XLSX        = Path("Biolage Sales Data.xlsx")
+INPUT_SHEET       = "Raw Data_Cleaned"
+OUTPUT_XLSX       = Path("Biolage Sales Data_Filtered.xlsx")
 OUTPUT_ANALYTICAL = Path("Analytical Table.xlsx")
+OUTPUT_PROPHET    = Path("Biolage Prophet Input.xlsx")
 
 # =============================
 # Load
@@ -108,7 +109,7 @@ analytical_tbl = (
             .fillna(0)
 )
 
-# YoY / Growth (your YoY calc: TTM / LY - 1)
+# YoY / Growth (TTM / LY - 1)
 analytical_tbl['Sales_Growth'] = (
     (analytical_tbl['TTM_Sales'] - analytical_tbl['LY_Sales']) /
     analytical_tbl['LY_Sales'].replace({0: pd.NA})
@@ -148,7 +149,32 @@ analytical_tbl = analytical_tbl[[c for c in final_cols if c in analytical_tbl.co
 analytical_tbl = analytical_tbl.sort_values('TTM_Sales', ascending=False)
 
 # =============================
-# Extra QA tabs (optional)
+# Prophet-style & Avg Price tables
+# =============================
+# Week x Franchise, Sum Units & Sum Sales
+avg_price_tbl = (
+    df_out.groupby(['Week', 'Franchise'], as_index=False)
+          .agg(Sum_Units=('Units', 'sum'),
+               Sum_Sales=('Sales', 'sum'))
+)
+
+avg_price_tbl['Average_Price'] = (
+    avg_price_tbl['Sum_Sales'] /
+    avg_price_tbl['Sum_Units'].replace({0: pd.NA})
+)
+
+# Sort by Week ascending, then Franchise
+avg_price_tbl = avg_price_tbl.sort_values(['Week', 'Franchise'])
+
+# Prophet input = same grouping but only Units
+prophet_tbl = (
+    avg_price_tbl[['Week', 'Franchise', 'Sum_Units']]
+        .rename(columns={'Sum_Units': 'Sum_Units'})
+        .copy()
+)
+
+# =============================
+# Extra QA tabs
 # =============================
 overall_units = df_out['Units'].sum()
 overall_sales = df_out['Sales'].sum()
@@ -220,7 +246,7 @@ with pd.ExcelWriter(OUTPUT_XLSX, engine='openpyxl') as writer:
     sales_ct.reset_index().to_excel(writer, sheet_name='CrossTab_Sales', index=False)
     units_ct.reset_index().to_excel(writer, sheet_name='CrossTab_Units', index=False)
 
-    # Final Analytical Table (your target)
+    # Final Analytical Table
     analytical_tbl.to_excel(writer, sheet_name='Analytical_Table', index=False)
 
     # QA tabs
@@ -229,24 +255,36 @@ with pd.ExcelWriter(OUTPUT_XLSX, engine='openpyxl') as writer:
     wm_summary.to_excel(writer, sheet_name='WeekMapping_Summary', index=False)
     weekly_summary.to_excel(writer, sheet_name='Weekly_Summary', index=False)
 
+    # Avg price tab
+    avg_price_tbl.to_excel(writer, sheet_name='Avg_Price', index=False)
+
     # Data Quality
     dq_summary.to_excel(writer, sheet_name='Data_Quality', index=False, startrow=0)
     dq_nulls.to_excel(writer, sheet_name='Data_Quality', index=False, startrow=len(dq_summary)+3)
 
 # =============================
 # Write SECOND Excel: "Analytical Table.xlsx"
-# Only: Raw_Data + Analytical_Table + Franchise_Summary
+# Only: Raw_Data + Analytical_Table + Franchise_Summary + Avg_Price
 # =============================
 with pd.ExcelWriter(OUTPUT_ANALYTICAL, engine='openpyxl') as writer2:
     df_out[cols_final].to_excel(writer2, sheet_name='Raw_Data', index=False)
     analytical_tbl.to_excel(writer2, sheet_name='Analytical_Table', index=False)
     franchise_summary.to_excel(writer2, sheet_name='Franchise_Summary', index=False)
+    avg_price_tbl.to_excel(writer2, sheet_name='Avg_Price', index=False)
+
+# =============================
+# Write THIRD Excel: Prophet-only
+# =============================
+with pd.ExcelWriter(OUTPUT_PROPHET, engine='openpyxl') as writer3:
+    prophet_tbl.to_excel(writer3, sheet_name='Prophet_Input', index=False)
 
 print("✅ Files created:")
-print(f"   Main QA file:        {OUTPUT_XLSX}")
-print(f"   Analytical only file:{OUTPUT_ANALYTICAL}")
+print(f"   Main QA file:         {OUTPUT_XLSX}")
+print(f"   Analytical only file: {OUTPUT_ANALYTICAL}")
+print(f"   Prophet input file:   {OUTPUT_PROPHET}")
 print(f"   Rows exported (included only): {len(df_out):,}")
 print(f"   Unique weeks (included only):  {df_out['Week'].nunique()}")
+
 
 
 
