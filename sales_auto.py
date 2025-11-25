@@ -7,6 +7,7 @@ from pathlib import Path
 INPUT_XLSX  = Path("Biolage Sales Data.xlsx")
 INPUT_SHEET = "Raw Data_Cleaned"
 OUTPUT_XLSX = Path("Biolage Sales Data_Filtered.xlsx")
+OUTPUT_ANALYTICAL = Path("Analytical Table.xlsx")
 
 # =============================
 # Load
@@ -207,11 +208,12 @@ dq_summary = pd.DataFrame({
 })
 
 # =============================
-# Write Excel
+# Write main Excel (full QA)
 # =============================
+cols_final = ['Week','Week Mapping','Franchise','Sales','Units','Year','Include']
+
 with pd.ExcelWriter(OUTPUT_XLSX, engine='openpyxl') as writer:
     # Raw included rows (for traceability)
-    cols_final = ['Week','Week Mapping','Franchise','Sales','Units','Year','Include']
     df_out[cols_final].to_excel(writer, sheet_name='TTM_LY_Only', index=False)
 
     # Crosstabs like Alteryx
@@ -231,9 +233,20 @@ with pd.ExcelWriter(OUTPUT_XLSX, engine='openpyxl') as writer:
     dq_summary.to_excel(writer, sheet_name='Data_Quality', index=False, startrow=0)
     dq_nulls.to_excel(writer, sheet_name='Data_Quality', index=False, startrow=len(dq_summary)+3)
 
-print("✅ File created:")
-print(f"   {OUTPUT_XLSX}")
+# =============================
+# Write SECOND Excel: "Analytical Table.xlsx"
+# Only: Raw_Data + Analytical_Table + Franchise_Summary
+# =============================
+with pd.ExcelWriter(OUTPUT_ANALYTICAL, engine='openpyxl') as writer2:
+    df_out[cols_final].to_excel(writer2, sheet_name='Raw_Data', index=False)
+    analytical_tbl.to_excel(writer2, sheet_name='Analytical_Table', index=False)
+    franchise_summary.to_excel(writer2, sheet_name='Franchise_Summary', index=False)
+
+print("✅ Files created:")
+print(f"   Main QA file:        {OUTPUT_XLSX}")
+print(f"   Analytical only file:{OUTPUT_ANALYTICAL}")
 print(f"   Rows exported (included only): {len(df_out):,}")
 print(f"   Unique weeks (included only):  {df_out['Week'].nunique()}")
+
 
 
