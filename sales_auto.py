@@ -92,7 +92,6 @@ for pvt in (sales_ct, units_ct):
     for col in ('LY','TTM'):
         if col not in pvt.columns:
             pvt[col] = 0
-    # reorder just in case
     pvt.sort_index(axis=1, inplace=True)
 
 # Rename for final output
@@ -108,7 +107,7 @@ analytical_tbl = (
             .fillna(0)
 )
 
-# Optional KPI columns
+# YoY / Growth (your YoY calc: TTM / LY - 1)
 analytical_tbl['Sales_Growth'] = (
     (analytical_tbl['TTM_Sales'] - analytical_tbl['LY_Sales']) /
     analytical_tbl['LY_Sales'].replace({0: pd.NA})
@@ -118,8 +117,32 @@ analytical_tbl['Units_Growth'] = (
     analytical_tbl['LY_Units'].replace({0: pd.NA})
 )
 
-# Final column order like your screenshot
-final_cols = ['Franchise','LY_Sales','TTM_Sales','LY_Units','TTM_Units','Sales_Growth','Units_Growth']
+# =============================
+# CTG and Distribution (from your Alteryx logic)
+# =============================
+total_LY_sales  = analytical_tbl['LY_Sales'].sum()
+total_TTM_sales = analytical_tbl['TTM_Sales'].sum()
+
+# CTG = (TTM Sales - LY Sales) / Sum_LY Sales
+if total_LY_sales != 0:
+    analytical_tbl['CTG'] = (analytical_tbl['TTM_Sales'] - analytical_tbl['LY_Sales']) / total_LY_sales
+else:
+    analytical_tbl['CTG'] = pd.NA
+
+# Distribution = TTM Sales / Sum_TTM Sales
+if total_TTM_sales != 0:
+    analytical_tbl['Distribution'] = analytical_tbl['TTM_Sales'] / total_TTM_sales
+else:
+    analytical_tbl['Distribution'] = pd.NA
+
+# Final column order like your screenshot + new calcs
+final_cols = [
+    'Franchise',
+    'LY_Sales','TTM_Sales',
+    'LY_Units','TTM_Units',
+    'Sales_Growth','Units_Growth',
+    'CTG','Distribution'
+]
 analytical_tbl = analytical_tbl[[c for c in final_cols if c in analytical_tbl.columns]]
 analytical_tbl = analytical_tbl.sort_values('TTM_Sales', ascending=False)
 
@@ -212,4 +235,5 @@ print("✅ File created:")
 print(f"   {OUTPUT_XLSX}")
 print(f"   Rows exported (included only): {len(df_out):,}")
 print(f"   Unique weeks (included only):  {df_out['Week'].nunique()}")
+
 
