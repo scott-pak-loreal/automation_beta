@@ -1,14 +1,21 @@
 import pandas as pd
 from pathlib import Path
+from prophet import Prophet
 
 # =============================
 # Config
 # =============================
-INPUT_XLSX        = Path("Biolage Sales Data.xlsx")
-INPUT_SHEET       = "Raw Data_Cleaned"
-OUTPUT_XLSX       = Path("Biolage Sales Data_Filtered.xlsx")
-OUTPUT_ANALYTICAL = Path("Analytical Table.xlsx")
-OUTPUT_PROPHET    = Path("Biolage Prophet Input.xlsx")
+INPUT_XLSX         = Path("Biolage Sales Data.xlsx")
+INPUT_SHEET        = "Raw Data_Cleaned"
+OUTPUT_XLSX        = Path("Biolage Sales Data_Filtered.xlsx")
+OUTPUT_ANALYTICAL  = Path("Analytical Table.xlsx")
+OUTPUT_PROPHET_IN  = Path("Biolage Prophet Input.xlsx")
+OUTPUT_PROPHET_OUT = Path("Biolage Prophet Output.xlsx")
+
+# Toggles
+RUN_PROPHET_EXPORT = True   # Turn OFF → False to skip Prophet input file
+RUN_PROPHET_MODEL  = True   # Turn OFF → False to skip Prophet modeling
+
 
 # =============================
 # Load
@@ -16,9 +23,9 @@ OUTPUT_PROPHET    = Path("Biolage Prophet Input.xlsx")
 df = pd.read_excel(INPUT_XLSX, sheet_name=INPUT_SHEET)
 
 # =============================
-# Date prep
+# Date prep (remove time)
 # =============================
-df['Week End'] = pd.to_datetime(df['Week End'], errors='coerce')
+df['Week End'] = pd.to_datetime(df['Week End'], errors='coerce').dt.normalize()
 if 'Week' in df.columns:
     df = df.drop(columns=['Week'])
 df = df.rename(columns={'Week End': 'Week'})
@@ -53,12 +60,12 @@ for i, wk in enumerate(unique_weeks):
 df['Week Mapping'] = df['Week'].map(week_map)
 
 # Include / Exclude flag
-df['Include'] = df['Week Mapping'].apply(lambda x: 'Include' if x in {'TTM','LY'} else 'Exclude')
+df['Include'] = df['Week Mapping'].apply(lambda x: 'Include' if x in {'TTM', 'LY'} else 'Exclude')
 
 # =============================
 # Subset + rename measures (keep only included)
 # =============================
-keep_cols = ['Week','Week Mapping','Franchise','ST_Retail_$','ST_Units','Include']
+keep_cols = ['Week', 'Week Mapping', 'Franchise', 'ST_Retail_$', 'ST_Units', 'Include']
 if 'Year' in df.columns:  # pass through Year if it exists
     keep_cols.append('Year')
 
@@ -76,29 +83,31 @@ if 'Year' not in df_out.columns:
 # Alteryx-like Summarize (Week Mapping × Franchise)
 # =============================
 summ_wm_fr = (
-    df_out.groupby(['Week Mapping','Franchise'], as_index=False)[['Sales','Units']].sum()
+    df_out.groupby(['Week Mapping', 'Franchise'], as_index=False)[['Sales', 'Units']].sum()
 )
 
 # =============================
 # Cross Tabs (Franchise rows; LY/TTM columns)
 # =============================
 sales_ct = summ_wm_fr.pivot_table(
-    index='Franchise', columns='Week Mapping', values='Sales', aggfunc='sum', fill_value=0
+    index='Franchise', columns='Week Mapping', values='Sales',
+    aggfunc='sum', fill_value=0
 )
 units_ct = summ_wm_fr.pivot_table(
-    index='Franchise', columns='Week Mapping', values='Units', aggfunc='sum', fill_value=0
+    index='Franchise', columns='Week Mapping', values='Units',
+    aggfunc='sum', fill_value=0
 )
 
 # Guarantee columns exist & order
 for pvt in (sales_ct, units_ct):
-    for col in ('LY','TTM'):
+    for col in ('LY', 'TTM'):
         if col not in pvt.columns:
             pvt[col] = 0
     pvt.sort_index(axis=1, inplace=True)
 
 # Rename for final output
-sales_ct = sales_ct[['LY','TTM']].rename(columns={'LY':'LY_Sales','TTM':'TTM_Sales'})
-units_ct = units_ct[['LY','TTM']].rename(columns={'LY':'LY_Units','TTM':'TTM_Units'})
+sales_ct = sales_ct[['LY', 'TTM']].rename(columns={'LY': 'LY_Sales', 'TTM': 'TTM_Sales'})
+units_ct = units_ct[['LY', 'TTM']].rename(columns={'LY': 'LY_Units', 'TTM': 'TTM_Units'})
 
 # =============================
 # Analytical Table (merge Sales + Units)
@@ -140,10 +149,10 @@ else:
 # Final column order
 final_cols = [
     'Franchise',
-    'LY_Sales','TTM_Sales',
-    'LY_Units','TTM_Units',
-    'Sales_Growth','Units_Growth',
-    'CTG','Distribution'
+    'LY_Sales', 'TTM_Sales',
+    'LY_Units', 'TTM_Units',
+    'Sales_Growth', 'Units_Growth',
+    'CTG', 'Distribution'
 ]
 analytical_tbl = analytical_tbl[[c for c in final_cols if c in analytical_tbl.columns]]
 analytical_tbl = analytical_tbl.sort_values('TTM_Sales', ascending=False)
@@ -166,12 +175,14 @@ avg_price_tbl['Average_Price'] = (
 # Sort by Week ascending, then Franchise
 avg_price_tbl = avg_price_tbl.sort_values(['Week', 'Franchise'])
 
-# Prophet input = same grouping but only Units
-prophet_tbl = (
-    avg_price_tbl[['Week', 'Franchise', 'Sum_Units']]
-        .rename(columns={'Sum_Units': 'Sum_Units'})
-        .copy()
-)
+# Prophet input table (only if enabled)
+if RUN_PROPHET_EXPORT:
+    prophet_tbl = (
+        avg_price_tbl[['Week', 'Franchise', 'Sum_Units']]
+            .copy()
+    )
+else:
+    prophet_tbl = None
 
 # =============================
 # Extra QA tabs
@@ -180,30 +191,30 @@ overall_units = df_out['Units'].sum()
 overall_sales = df_out['Sales'].sum()
 
 franchise_summary = (
-    df_out.groupby('Franchise', as_index=False)[['Units','Sales']].sum()
+    df_out.groupby('Franchise', as_index=False)[['Units', 'Sales']].sum()
           .sort_values('Sales', ascending=False)
 )
 
 year_summary = (
-    df_out.groupby('Year', as_index=False)[['Units','Sales']].sum()
+    df_out.groupby('Year', as_index=False)[['Units', 'Sales']].sum()
           .sort_values('Year')
 )
 
 wm_summary = (
-    df_out.groupby('Week Mapping', as_index=False)[['Units','Sales']].sum()
+    df_out.groupby('Week Mapping', as_index=False)[['Units', 'Sales']].sum()
           .sort_values('Week Mapping', ascending=False)
 )
 
 weekly_summary = (
-    df_out.groupby('Week', as_index=False)[['Units','Sales']].sum()
+    df_out.groupby('Week', as_index=False)[['Units', 'Sales']].sum()
           .sort_values('Week', ascending=False)
 )
 
 # Data Quality
-dq_cols = ['Week','Franchise','ST_Retail_$','ST_Units','Year','Week Mapping']
+dq_cols = ['Week', 'Franchise', 'ST_Retail_$', 'ST_Units', 'Year', 'Week Mapping']
 dq_cols = [c for c in dq_cols if c in df.columns]
 nulls = df[dq_cols].isna().sum(min_count=1)
-dq_nulls = nulls.to_frame(name='Null_Count').reset_index().rename(columns={'index':'Column'})
+dq_nulls = nulls.to_frame(name='Null_Count').reset_index().rename(columns={'index': 'Column'})
 
 neg_units = (df['ST_Units'] < 0).sum() if 'ST_Units' in df.columns else 0
 neg_sales = (df['ST_Retail_$'] < 0).sum() if 'ST_Retail_$' in df.columns else 0
@@ -236,7 +247,7 @@ dq_summary = pd.DataFrame({
 # =============================
 # Write main Excel (full QA)
 # =============================
-cols_final = ['Week','Week Mapping','Franchise','Sales','Units','Year','Include']
+cols_final = ['Week', 'Week Mapping', 'Franchise', 'Sales', 'Units', 'Year', 'Include']
 
 with pd.ExcelWriter(OUTPUT_XLSX, engine='openpyxl') as writer:
     # Raw included rows (for traceability)
@@ -260,7 +271,7 @@ with pd.ExcelWriter(OUTPUT_XLSX, engine='openpyxl') as writer:
 
     # Data Quality
     dq_summary.to_excel(writer, sheet_name='Data_Quality', index=False, startrow=0)
-    dq_nulls.to_excel(writer, sheet_name='Data_Quality', index=False, startrow=len(dq_summary)+3)
+    dq_nulls.to_excel(writer, sheet_name='Data_Quality', index=False, startrow=len(dq_summary) + 3)
 
 # =============================
 # Write SECOND Excel: "Analytical Table.xlsx"
@@ -273,15 +284,112 @@ with pd.ExcelWriter(OUTPUT_ANALYTICAL, engine='openpyxl') as writer2:
     avg_price_tbl.to_excel(writer2, sheet_name='Avg_Price', index=False)
 
 # =============================
-# Write THIRD Excel: Prophet-only
+# Write THIRD Excel: Prophet INPUT (optional)
 # =============================
-with pd.ExcelWriter(OUTPUT_PROPHET, engine='openpyxl') as writer3:
-    prophet_tbl.to_excel(writer3, sheet_name='Prophet_Input', index=False)
+if RUN_PROPHET_EXPORT and prophet_tbl is not None:
+    with pd.ExcelWriter(OUTPUT_PROPHET_IN, engine='openpyxl') as writer3:
+        prophet_tbl.to_excel(writer3, sheet_name='Prophet_Input', index=False)
 
+# =============================
+# Prophet MODELING (optional)
+# =============================
+if RUN_PROPHET_MODEL:
+    if prophet_tbl is None:
+        raise ValueError("prophet_tbl is None. Make sure RUN_PROPHET_EXPORT = True so the Prophet input table is created.")
+
+    # 1) Prepare dataset: rename columns to ds / ID / y (as in your R code)
+    dataset = (
+        prophet_tbl
+        .rename(columns={
+            'Week': 'ds',
+            'Franchise': 'ID',
+            'Sum_Units': 'y'
+        })
+        .copy()
+    )
+
+    # Ensure ds is date-only
+    dataset['ds'] = pd.to_datetime(dataset['ds'], errors='coerce').dt.normalize()
+
+    # Optional: sort for safety
+    dataset = dataset.sort_values(['ID', 'ds'])
+
+    # 2) Split by ID (Franchise)
+    franchise_groups = {fr_id: df for fr_id, df in dataset.groupby('ID')}
+
+    results = []
+
+    for fr_id, df_group in franchise_groups.items():
+        # Keep only the columns Prophet needs
+        prophet_df = df_group[['ds', 'y']].copy().sort_values('ds')
+
+        # 3) Fit Prophet model
+        m = Prophet(
+            yearly_seasonality=True,
+            weekly_seasonality=True
+        )
+        m.fit(prophet_df)
+
+        # 4) Create future dataframe (365 days, like your R code)
+        future = m.make_future_dataframe(periods=365)
+
+        # 5) Predict
+        forecast = m.predict(future)
+
+        # Ensure weekly/yearly columns exist (to mirror R safety)
+        if 'weekly' not in forecast.columns:
+            forecast['weekly'] = pd.NA
+        if 'yearly' not in forecast.columns:
+            forecast['yearly'] = pd.NA
+
+        # Add ID (Franchise) column
+        forecast['ID'] = fr_id
+
+        # Add an Index column similar to rownames in R
+        forecast = forecast.reset_index(drop=True)
+        forecast['Index'] = forecast.index
+
+        results.append(forecast)
+
+    # 6) Combine all forecasts
+    all_forecasts = pd.concat(results, ignore_index=True)
+
+    # Optional: filter dates if you want to mimic the commented R line
+    # all_forecasts = all_forecasts[all_forecasts['ds'] < pd.to_datetime("2025-01-05")]
+
+    # 7) Merge original dataset with forecast (on ID + ds) and keep same columns as R
+    merged_dataset = (
+        dataset
+        .merge(
+            all_forecasts[['ID', 'ds', 'trend', 'weekly', 'yearly', 'yhat']],
+            on=['ID', 'ds'],
+            how='left'
+        )
+        [['ID', 'ds', 'y', 'trend', 'weekly', 'yearly', 'yhat']]
+        .copy()
+    )
+
+    # 8) Optional check: expected row count (1052 in your R script)
+    expected_n = 1052
+    if len(merged_dataset) != expected_n:
+        print(f"⚠️ Warning: merged_dataset has {len(merged_dataset)} rows, expected {expected_n}.")
+
+    # 9) Write to Excel
+    with pd.ExcelWriter(OUTPUT_PROPHET_OUT, engine='openpyxl') as writer4:
+        merged_dataset.to_excel(writer4, sheet_name='Prophet_Output', index=False)
+
+    print(f"✅ Prophet modeling complete. Output file: {OUTPUT_PROPHET_OUT}")
+
+# =============================
+# Final prints
+# =============================
 print("✅ Files created:")
 print(f"   Main QA file:         {OUTPUT_XLSX}")
 print(f"   Analytical only file: {OUTPUT_ANALYTICAL}")
-print(f"   Prophet input file:   {OUTPUT_PROPHET}")
+if RUN_PROPHET_EXPORT:
+    print(f"   Prophet input file:   {OUTPUT_PROPHET_IN}")
+if RUN_PROPHET_MODEL:
+    print(f"   Prophet output file:  {OUTPUT_PROPHET_OUT}")
 print(f"   Rows exported (included only): {len(df_out):,}")
 print(f"   Unique weeks (included only):  {df_out['Week'].nunique()}")
 
