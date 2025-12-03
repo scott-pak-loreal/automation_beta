@@ -5,7 +5,7 @@ from prophet import Prophet
 # =============================
 # Config
 # =============================
-INPUT_XLSX         = Path("Biolage Sales Data.xlsx")
+INPUT_XLSX_TWO         = Path("Biolage Sales Data.xlsx")
 INPUT_SHEET        = "Raw Data_Cleaned"
 OUTPUT_XLSX        = Path("Biolage Sales Data_Filtered.xlsx")
 OUTPUT_ANALYTICAL  = Path("Analytical Table.xlsx")
