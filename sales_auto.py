@@ -379,7 +379,7 @@ if RUN_PROPHET_MODEL:
         print(f"⚠️ Warning: merged_dataset has {len(merged_dataset)} rows, expected {expected_n}.")
 
     # make ds a pure date (no time)
-    merged_dataset['ds'] = pd.to_datetime(merged_dataset['ds']).dt.dat
+    merged_dataset['ds'] = pd.to_datetime(merged_dataset['ds']).dt.date
     # 9) Write to Excel
     with pd.ExcelWriter(OUTPUT_PROPHET_OUT, engine='openpyxl') as writer4:
         merged_dataset.to_excel(writer4, sheet_name='Prophet_Output', index=False)
