@@ -18,12 +18,12 @@ RUN_PROPHET_MODEL  = True   # Turn OFF → False to skip Prophet modeling
 
 
 # =============================
-# Load
+# Load Data
 # =============================
 df = pd.read_excel(INPUT_XLSX, sheet_name=INPUT_SHEET)
 
 # =============================
-# Date prep (remove time)
+# Date prep (remove time - NOT WORKING CORRECTLY)
 # =============================
 df['Week End'] = pd.to_datetime(df['Week End'], errors='coerce').dt.normalize()
 if 'Week' in df.columns:
@@ -277,6 +277,10 @@ with pd.ExcelWriter(OUTPUT_XLSX, engine='openpyxl') as writer:
 # Write SECOND Excel: "Analytical Table.xlsx"
 # Only: Raw_Data + Analytical_Table + Franchise_Summary + Avg_Price
 # =============================
+df_out['Week']        = df_out['Week'].dt.date
+avg_price_tbl['Week'] = avg_price_tbl['Week'].dt.date
+weekly_summary['Week'] = weekly_summary['Week'].dt.date
+
 with pd.ExcelWriter(OUTPUT_ANALYTICAL, engine='openpyxl') as writer2:
     df_out[cols_final].to_excel(writer2, sheet_name='Raw_Data', index=False)
     analytical_tbl.to_excel(writer2, sheet_name='Analytical_Table', index=False)
@@ -297,7 +301,7 @@ if RUN_PROPHET_MODEL:
     if prophet_tbl is None:
         raise ValueError("prophet_tbl is None. Make sure RUN_PROPHET_EXPORT = True so the Prophet input table is created.")
 
-    # 1) Prepare dataset: rename columns to ds / ID / y (as in your R code)
+    # 1) Prepare dataset: rename columns to ds / ID / y 
     dataset = (
         prophet_tbl
         .rename(columns={
@@ -374,6 +378,8 @@ if RUN_PROPHET_MODEL:
     if len(merged_dataset) != expected_n:
         print(f"⚠️ Warning: merged_dataset has {len(merged_dataset)} rows, expected {expected_n}.")
 
+    # make ds a pure date (no time)
+    merged_dataset['ds'] = pd.to_datetime(merged_dataset['ds']).dt.dat
     # 9) Write to Excel
     with pd.ExcelWriter(OUTPUT_PROPHET_OUT, engine='openpyxl') as writer4:
         merged_dataset.to_excel(writer4, sheet_name='Prophet_Output', index=False)
