@@ -1,39 +1,31 @@
 import pandas as pd
+import numpy as np
 from pathlib import Path
 
 # =============================
 # Config
 # =============================
 INPUT_MEDIA_XLSX   = Path("Biolage Media Data.xlsx")
-INPUT_MEDIA_SHEET  = "Consolidated Media Data"   # adjust if needed
+INPUT_MEDIA_SHEET  = "Consolidated Media Data"  
 OUTPUT_MEDIA_FILE  = Path("Biolage Media Processed.xlsx")
-
-# Which column is your "media group"?
-MEDIA_GROUP_COL = "Partner_tag"   # we’ll create this below
-
 
 # =============================
 # Load media data
 # =============================
 df = pd.read_excel(INPUT_MEDIA_XLSX, sheet_name=INPUT_MEDIA_SHEET)
 
-# Clean column names a bit
-df.columns = [c.strip().replace(" ", "_") for c in df.columns]
+# Strip whitespace from column names (safety)
+df.columns = [c.strip() for c in df.columns]
+
+# If your date column is "Week End (Sat)" rename it to "Week"
+if "Week End (Sat)" in df.columns:
+    df = df.rename(columns={"Week End (Sat)": "Week"})
 
 # =============================
-# Date prep (optional, if you have a week/date column)
+# Date prep (if Week column exists)
 # =============================
-for possible_date in ["Week_End", "Week", "Date"]:
-    if possible_date in df.columns:
-        df[possible_date] = pd.to_datetime(df[possible_date], errors="coerce").dt.normalize()
-        # standardize name to Week
-        if possible_date != "Week":
-            if "Week" in df.columns and possible_date != "Week":
-                # avoid overwriting a different Week column accidentally
-                pass
-            else:
-                df = df.rename(columns={possible_date: "Week"})
-        break  # stop after first date column found
+if "Week" in df.columns:
+    df["Week"] = pd.to_datetime(df["Week"], errors="coerce").dt.normalize()
 
 # =============================
 # Numeric hygiene
@@ -43,15 +35,15 @@ for col in ["Spend", "Impressions"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
 # =============================
-# FORMULA TOOL #1 (Franchise remapping)
-# -----------------------------
-# IF Contains([Franchise], "Blowdry Cream") THEN "Styling"
-# ELSEIF Contains([Franchise], "Prime Day") THEN "Biolage - Brand"
-# ELSE [Franchise]
-# ENDIF
+# 1) Franchise remapping
+#    IF Contains("Blowdry Cream") -> "Styling"
+#    ELSEIF Contains("Prime Day") -> "Biolage - Brand"
+#    ELSE Franchise
 # =============================
+if "Franchise" not in df.columns:
+    raise KeyError("Expected a 'Franchise' column; check your headers.")
 
-def map_franchise_jim(value: str) -> str:
+def map_franchise(value: str) -> str:
     v = str(value)
     if "Blowdry Cream" in v:
         return "Styling"
@@ -60,86 +52,106 @@ def map_franchise_jim(value: str) -> str:
     else:
         return v
 
-df["Franchise"] = df["Franchise"].apply(map_franchise_jim)
+df["Franchise"] = df["Franchise"].apply(map_franchise)
 
 # =============================
-# FORMULA TOOL #2 (Concatfranchise)
-# -----------------------------
-# Concatfranchise = [partner] + " - " + [Franchise]
+# 2) Partner_tag logic
+#    IF Franchise contains "- Brand" -> Partner + "_Brand"
+#    ELSE Partner
 # =============================
-df["Concatfranchise"] = (
-    df["partner"].astype(str) + " - " + df["Franchise"].astype(str)
+if "Partner" not in df.columns:
+    raise KeyError("Expected a 'Partner' column; check your headers.")
+
+df["Partner_tag"] = np.where(
+    df["Franchise"].astype(str).str.contains("- Brand"),
+    df["Partner"].astype(str) + "_Brand",
+    df["Partner"].astype(str)
 )
 
 # =============================
-# FORMULA TOOL #3 (Partner_tag)
-# -----------------------------
-# IF Contains([concatfranchise], "- Brand") THEN
-#     [partner] + "_Brand"
-# ELSE
-#     [partner]
-# ENDIF
+# 3) Build Partner / Partner_Brand skeleton
+#    For every unique Partner, create:
+#    (Partner, Partner) and (Partner, Partner_Brand)
 # =============================
-def map_partner_tag(row):
-    concat_val  = str(row["Concatfranchise"])
-    partner_val = str(row["partner"])
-    if "- Brand" in concat_val:
-        return partner_val + "_Brand"
-    else:
-        return partner_val
+unique_partners = (
+    df["Partner"]
+      .dropna()
+      .drop_duplicates()
+      .tolist()
+)
 
-df["Partner_tag"] = df.apply(map_partner_tag, axis=1)
+skeleton_rows = []
+for p in unique_partners:
+    skeleton_rows.append({"Partner": p, "Partner_tag": p})
+    skeleton_rows.append({"Partner": p, "Partner_tag": f"{p}_Brand"})
+
+skeleton = pd.DataFrame(skeleton_rows).drop_duplicates().reset_index(drop=True)
 
 # =============================
-# Summaries of Spend & Impressions
+# 4) Summaries of Spend & Impressions
 # =============================
 num_cols = [c for c in ["Spend", "Impressions"] if c in df.columns]
 
-# 1) Summary by Franchise
+# 4a) Summary by Franchise
 if num_cols:
     franchise_summary = (
         df.groupby("Franchise", as_index=False)[num_cols]
           .sum()
-          .sort_values(num_cols[0], ascending=False)  # sort by Spend if present
+          .sort_values(num_cols[0], ascending=False)
     )
 else:
     franchise_summary = pd.DataFrame()
 
-# 2) Summary by Media Group (Partner_tag)
-if MEDIA_GROUP_COL in df.columns and num_cols:
-    media_group_summary = (
-        df.groupby(MEDIA_GROUP_COL, as_index=False)[num_cols]
+# 4b) Summary by Partner & Partner_tag
+if num_cols:
+    partner_tag_summary = (
+        df.groupby(["Partner", "Partner_tag"], as_index=False)[num_cols]
           .sum()
-          .sort_values(num_cols[0], ascending=False)
     )
 else:
-    media_group_summary = pd.DataFrame()
+    partner_tag_summary = pd.DataFrame()
+
+# Ensure we have BOTH Partner and Partner_Brand for each Partner
+if not partner_tag_summary.empty:
+    partner_tag_summary = (
+        skeleton
+        .merge(partner_tag_summary, on=["Partner", "Partner_tag"], how="left")
+    )
+    for col in num_cols:
+        partner_tag_summary[col] = partner_tag_summary[col].fillna(0)
+
+    partner_tag_summary = partner_tag_summary.sort_values(["Partner", "Partner_tag"])
+else:
+    partner_tag_summary = skeleton.copy()
+    for col in num_cols:
+        partner_tag_summary[col] = 0
 
 # =============================
-# Lists of Franchises & Media Groups
+# 5) Lists of Franchises & Media Groups
 # =============================
 franchise_list = (
     df["Franchise"]
-    .dropna()
-    .drop_duplicates()
-    .sort_values()
-    .to_frame(name="Franchise")
+      .dropna()
+      .drop_duplicates()
+      .sort_values()
+      .to_frame(name="Franchise")
 )
 
-if MEDIA_GROUP_COL in df.columns:
-    media_group_list = (
-        df[MEDIA_GROUP_COL]
-        .dropna()
-        .drop_duplicates()
-        .sort_values()
-        .to_frame(name=MEDIA_GROUP_COL)
-    )
-else:
-    media_group_list = pd.DataFrame()
+media_group_list = (
+    partner_tag_summary["Partner_tag"]
+      .dropna()
+      .drop_duplicates()
+      .sort_values()
+      .to_frame(name="Partner_tag")
+)
 
 # =============================
-# Write output Excel
+# 6) Write output Excel
 # =============================
+# Make Week pure date for Excel if present
+if "Week" in df.columns:
+    df["Week"] = pd.to_datetime(df["Week"]).dt.date
+
 with pd.ExcelWriter(OUTPUT_MEDIA_FILE, engine="openpyxl") as writer:
     # Raw processed media rows
     df.to_excel(writer, sheet_name="Media_Processed", index=False)
@@ -147,8 +159,7 @@ with pd.ExcelWriter(OUTPUT_MEDIA_FILE, engine="openpyxl") as writer:
     # Summaries
     if not franchise_summary.empty:
         franchise_summary.to_excel(writer, sheet_name="Summary_Franchise", index=False)
-    if not media_group_summary.empty:
-        media_group_summary.to_excel(writer, sheet_name="Summary_MediaGroup", index=False)
+    partner_tag_summary.to_excel(writer, sheet_name="Summary_PartnerTag", index=False)
 
     # Lists
     if not franchise_list.empty:
@@ -158,7 +169,5 @@ with pd.ExcelWriter(OUTPUT_MEDIA_FILE, engine="openpyxl") as writer:
 
 print("✅ Media pipeline complete:")
 print(f"   Output file: {OUTPUT_MEDIA_FILE}")
-if not franchise_summary.empty:
-    print(f"   Franchises summarized: {len(franchise_summary)}")
-if not media_group_summary.empty:
-    print(f"   Media groups summarized: {len(media_group_summary)}")
+print(f"   Unique partners: {len(unique_partners)}")
+print(f"   Rows in Partner/Partner_Brand summary: {len(partner_tag_summary)}")
