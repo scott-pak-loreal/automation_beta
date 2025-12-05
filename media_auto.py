@@ -43,11 +43,11 @@ for col in ["Spend", "Impressions"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
 # =============================
-# FORMULA TOOL #1 (Franchise_Jim remapping)
+# FORMULA TOOL #1 (Franchise remapping)
 # -----------------------------
-# IF Contains([Franchise_Jim], "Blowdry Cream") THEN "Styling"
-# ELSEIF Contains([Franchise_Jim], "Prime Day") THEN "Biolage - Brand"
-# ELSE [Franchise_Jim]
+# IF Contains([Franchise], "Blowdry Cream") THEN "Styling"
+# ELSEIF Contains([Franchise], "Prime Day") THEN "Biolage - Brand"
+# ELSE [Franchise]
 # ENDIF
 # =============================
 
@@ -60,15 +60,15 @@ def map_franchise_jim(value: str) -> str:
     else:
         return v
 
-df["Franchise_Jim"] = df["Franchise_Jim"].apply(map_franchise_jim)
+df["Franchise"] = df["Franchise"].apply(map_franchise_jim)
 
 # =============================
 # FORMULA TOOL #2 (Concatfranchise)
 # -----------------------------
-# Concatfranchise = [partner] + " - " + [Franchise_Jim]
+# Concatfranchise = [partner] + " - " + [Franchise]
 # =============================
 df["Concatfranchise"] = (
-    df["partner"].astype(str) + " - " + df["Franchise_Jim"].astype(str)
+    df["partner"].astype(str) + " - " + df["Franchise"].astype(str)
 )
 
 # =============================
@@ -98,7 +98,7 @@ num_cols = [c for c in ["Spend", "Impressions"] if c in df.columns]
 # 1) Summary by Franchise
 if num_cols:
     franchise_summary = (
-        df.groupby("Franchise_Jim", as_index=False)[num_cols]
+        df.groupby("Franchise", as_index=False)[num_cols]
           .sum()
           .sort_values(num_cols[0], ascending=False)  # sort by Spend if present
     )
@@ -119,11 +119,11 @@ else:
 # Lists of Franchises & Media Groups
 # =============================
 franchise_list = (
-    df["Franchise_Jim"]
+    df["Franchise"]
     .dropna()
     .drop_duplicates()
     .sort_values()
-    .to_frame(name="Franchise_Jim")
+    .to_frame(name="Franchise")
 )
 
 if MEDIA_GROUP_COL in df.columns:
